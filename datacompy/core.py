@@ -1088,12 +1088,14 @@ def get_merged_columns(
         What suffix was used to distinguish when the original dataframe was
         overlapping with the other merged dataframe.
     """
+    merged_cols_set = set(merged_df.columns)
     columns = []
+    append = columns.append
     for col in original_df.columns:
-        if col in merged_df.columns:
-            columns.append(col)
-        elif col + "_" + suffix in merged_df.columns:
-            columns.append(col + "_" + suffix)
+        if col in merged_cols_set:
+            append(col)
+        elif (col_with_suffix := f"{col}_{suffix}") in merged_cols_set:
+            append(col_with_suffix)
         else:
             raise ValueError("Column not found: %s", col)
     return columns
