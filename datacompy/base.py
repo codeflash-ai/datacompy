@@ -279,11 +279,12 @@ def temp_column_name(*dataframes) -> str:
     str
         String column name that looks like '_temp_x' for some integer x
     """
-    i = 0
-    columns = []
+    # Instead of a list, use a set for O(1) lookups
+    columns = set()
     for df in dataframes:
         if df is not None:
-            columns.extend(df.columns)
+            columns.update(df.columns)
+    i = 0
     while True:
         tmp = f"_temp_{i}"
         if tmp not in columns:
