@@ -1141,18 +1141,13 @@ def generate_id_within_group(
         The ID column that's unique in each group.
     """
     default_value = "DATACOMPY_NULL"
-    if dataframe[join_columns].isnull().any().any():
-        if (dataframe[join_columns] == default_value).any().any():
+    subset = dataframe[join_columns]
+    if subset.isnull().values.any():
+        if (subset.values == default_value).any():
             raise ValueError(f"{default_value} was found in your join columns")
-        return (
-            dataframe[join_columns]
-            .astype(str)
-            .fillna(default_value)
-            .groupby(join_columns)
-            .cumcount()
-        )
+        return subset.astype(str).fillna(default_value).groupby(join_columns).cumcount()
     else:
-        return dataframe[join_columns].groupby(join_columns).cumcount()
+        return subset.groupby(join_columns).cumcount()
 
 
 def normalize_string_column(
