@@ -280,15 +280,20 @@ def temp_column_name(*dataframes) -> str:
         String column name that looks like '_temp_x' for some integer x
     """
     i = 0
-    columns = []
-    for df in dataframes:
-        if df is not None:
-            columns.extend(df.columns)
-    while True:
-        tmp = f"_temp_{i}"
-        if tmp not in columns:
-            return tmp
-        i += 1
+    if dataframes:
+        # Use set for much faster "not in" checks in the hot loop
+        columns_set = set()
+        for df in dataframes:
+            if df is not None:
+                # df.columns is usually Index, convert to set efficiently
+                columns_set.update(df.columns)
+        while True:
+            tmp = f"_temp_{i}"
+            if tmp not in columns_set:
+                return tmp
+            i += 1
+    else:
+        return "_temp_0"
 
 
 def save_html_report(report: str, html_file: str | Path) -> None:
