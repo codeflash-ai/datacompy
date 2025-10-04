@@ -458,8 +458,9 @@ class Compare(BaseCompare):
             Number of matching rows
         """
         match_columns = []
+        join_columns_set = set(self.join_columns)
         for column in self.intersect_columns():
-            if column not in self.join_columns:
+            if column not in join_columns_set:
                 match_columns.append(column + "_match")
         return self.intersect_rows[match_columns].all(axis=1).sum()
 
@@ -667,6 +668,7 @@ class Compare(BaseCompare):
         dict
             Dictionary containing row summary information.
         """
+        matching_rows_count = self.count_matching_rows()
         return {
             "row_summary": {
                 "match_columns": "index"
@@ -677,9 +679,8 @@ class Compare(BaseCompare):
                 "common_rows": self.intersect_rows.shape[0],
                 "df1_unique": self.df1_unq_rows.shape[0],
                 "df2_unique": self.df2_unq_rows.shape[0],
-                "unequal_rows": self.intersect_rows.shape[0]
-                - self.count_matching_rows(),
-                "equal_rows": self.count_matching_rows(),
+                "unequal_rows": self.intersect_rows.shape[0] - matching_rows_count,
+                "equal_rows": matching_rows_count,
                 "df1_name": self.df1_name,
                 "df2_name": self.df2_name,
                 "has_duplicates": "Yes" if self._any_dupes else "No",
