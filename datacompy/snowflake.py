@@ -1147,14 +1147,18 @@ def get_merged_columns(
     List[str]
         Column list of the original dataframe pre suffix
     """
+    merged_columns = set(merged_df.columns)
     columns = []
+    suffix_str = f"_{suffix}"
     for column in original_df.columns:
-        if column in merged_df.columns:
+        if column in merged_columns:
             columns.append(column)
-        elif f"{column}_{suffix}" in merged_df.columns:
-            columns.append(f"{column}_{suffix}")
         else:
-            raise ValueError("Column not found: %s", column)
+            column_with_suffix = f"{column}{suffix_str}"
+            if column_with_suffix in merged_columns:
+                columns.append(column_with_suffix)
+            else:
+                raise ValueError("Column not found: %s", column)
     return columns
 
 
