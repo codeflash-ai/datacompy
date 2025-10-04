@@ -457,11 +457,17 @@ class Compare(BaseCompare):
         int
             Number of matching rows
         """
-        match_columns = []
-        for column in self.intersect_columns():
-            if column not in self.join_columns:
-                match_columns.append(column + "_match")
-        return self.intersect_rows[match_columns].all(axis=1).sum()
+        # Optimize by using set arithmetic and avoiding repeated intersect_columns
+        intersect_cols = self.intersect_columns()
+        # join_columns is always a list of str
+        join_columns_set = set(self.join_columns)
+        match_columns = [
+            f"{col}_match" for col in intersect_cols if col not in join_columns_set
+        ]
+        # The below operation is slow if match_columns is large and .all(axis=1) is called twice.
+        # We keep as a single operation as before, using the underlying numpy operations for speed.
+        # No behavioral changes.
+        return self.intersect_rows[match_columns].values.all(axis=1).sum()
 
     def intersect_rows_match(self) -> bool:
         """Check whether the intersect rows all match."""
@@ -667,6 +673,11 @@ class Compare(BaseCompare):
         dict
             Dictionary containing row summary information.
         """
+        # Optimize count_matching_rows call for repeated use
+        matching_count = self.count_matching_rows()
+        intersect_shape_0 = self.intersect_rows.shape[0]
+        df1_unq_rows_shape_0 = self.df1_unq_rows.shape[0]
+        df2_unq_rows_shape_0 = self.df2_unq_rows.shape[0]
         return {
             "row_summary": {
                 "match_columns": "index"
@@ -674,12 +685,11 @@ class Compare(BaseCompare):
                 else ", ".join(self.join_columns),
                 "abs_tol": self.abs_tol,
                 "rel_tol": self.rel_tol,
-                "common_rows": self.intersect_rows.shape[0],
-                "df1_unique": self.df1_unq_rows.shape[0],
-                "df2_unique": self.df2_unq_rows.shape[0],
-                "unequal_rows": self.intersect_rows.shape[0]
-                - self.count_matching_rows(),
-                "equal_rows": self.count_matching_rows(),
+                "common_rows": intersect_shape_0,
+                "df1_unique": df1_unq_rows_shape_0,
+                "df2_unique": df2_unq_rows_shape_0,
+                "unequal_rows": intersect_shape_0 - matching_count,
+                "equal_rows": matching_count,
                 "df1_name": self.df1_name,
                 "df2_name": self.df2_name,
                 "has_duplicates": "Yes" if self._any_dupes else "No",
