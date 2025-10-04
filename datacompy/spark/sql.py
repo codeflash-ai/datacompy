@@ -1373,9 +1373,13 @@ def _is_comparable(type1: str, type2: str) -> bool:
     bool
         True if both data types are comparable
     """
+    if type1 == type2:
+        return True
+
     return (
-        type1 == type2
-        or (type1 in NUMERIC_SPARK_TYPES and type2 in NUMERIC_SPARK_TYPES)
-        or ({type1, type2} == {"string", "timestamp"})
-        or ({type1, type2} == {"string", "date"})
+        (type1 in NUMERIC_SPARK_TYPES and type2 in NUMERIC_SPARK_TYPES)
+        or (type1 == "string" and type2 == "timestamp")
+        or (type1 == "timestamp" and type2 == "string")
+        or (type1 == "string" and type2 == "date")
+        or (type1 == "date" and type2 == "string")
     )
