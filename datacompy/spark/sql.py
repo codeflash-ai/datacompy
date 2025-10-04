@@ -37,6 +37,7 @@ from datacompy.base import (
     save_html_report,
     temp_column_name,
 )
+import pyspark.sql
 
 LOG = logging.getLogger(__name__)
 
@@ -1183,14 +1184,21 @@ def get_merged_columns(
     List[str]
         Column list of the original dataframe pre suffix
     """
+
+    # Convert merged_df.columns to a set for O(1) lookups.
+    merged_columns_set = set(merged_df.columns)
     columns = []
+    suffix_str = "_" + suffix  # precompute for reuse
+
     for col in original_df.columns:
-        if col in merged_df.columns:
+        if col in merged_columns_set:
             columns.append(col)
-        elif col + "_" + suffix in merged_df.columns:
-            columns.append(col + "_" + suffix)
         else:
-            raise ValueError("Column not found: %s", col)
+            suffixed_col = col + suffix_str
+            if suffixed_col in merged_columns_set:
+                columns.append(suffixed_col)
+            else:
+                raise ValueError("Column not found: %s", col)
     return columns
 
 
