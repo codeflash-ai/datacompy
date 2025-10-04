@@ -928,9 +928,21 @@ def _aggregate_stats(
 
 
 def _sample(df: pd.DataFrame, sample_count: int) -> pd.DataFrame:
-    if len(df) <= sample_count:
-        return df.reset_index(drop=True)
-    return df.sample(n=sample_count, random_state=0).reset_index(drop=True)
+    df_len = len(df)
+    if df_len <= sample_count:
+        # Avoid unnecessary reset_index if the index is already default RangeIndex and monotonic.
+        index = df.index
+        # Fast path: only reset index if it's not already default and monotonic increasing.
+        if not (
+            index.is_monotonic_increasing
+            and isinstance(index, pd.RangeIndex)
+            and index.start == 0
+            and index.step == 1
+        ):
+            return df.reset_index(drop=True)
+        return df
+    # Use ignore_index=True to avoid an extra reset_index call, which is more efficient.
+    return df.sample(n=sample_count, random_state=0, ignore_index=True)
 
 
 class _StrictSchemaError(Exception):
