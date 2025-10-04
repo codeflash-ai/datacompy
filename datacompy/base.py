@@ -372,7 +372,11 @@ def get_column_tolerance(column: str, tol_dict: Dict[str, float]) -> float:
         The tolerance value for the specified column, or the "default" tolerance if the column is not found.
         Returns 0 if neither the column nor "default" is present in the dictionary.
     """
-    return tol_dict.get(column, tol_dict.get("default", 0.0))
+    if column in tol_dict:
+        return tol_dict[column]
+    if "default" in tol_dict:
+        return tol_dict["default"]
+    return 0.0
 
 
 def _validate_tolerance_parameter(
