@@ -1115,7 +1115,12 @@ def calculate_max_diff(col_1: "pd.Series[Any]", col_2: "pd.Series[Any]") -> floa
         Numeric field, or zero.
     """
     try:
-        return cast(float, (col_1.astype(float) - col_2.astype(float)).abs().max())
+        # Avoid repeated .astype(float) calls and reduce memory usage by minimizing temporaries.
+        col_1_float = col_1.astype(float, copy=False)
+        col_2_float = col_2.astype(float, copy=False)
+        # Subtract first, then use a single .abs().max() chain for efficiency
+        diff = col_1_float.sub(col_2_float)
+        return cast(float, diff.abs().max())
     except Exception:
         return 0.0
 
