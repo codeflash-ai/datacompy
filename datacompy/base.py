@@ -419,10 +419,24 @@ def _validate_tolerance_parameter(
     # If dict, validate values and format
     if isinstance(param_value, dict):
         result = {}
+        # Pre-fetch string conversion (minor, but less lookups)
+        lower = str.lower
+        upper = str.upper
+        is_numeric = (int, float)
+        add_float = float  # To avoid lookup inside loop
 
-        # Convert all values to float and validate
+        # To avoid repeated attribute lookup in a tight loop, set up
+        # local variables for case conversion function, or None (no-op)
+        if case_mode == "lower":
+            case_func = lower
+        elif case_mode == "upper":
+            case_func = upper
+        else:
+            case_func = None
+
         for col, value in param_value.items():
-            if not isinstance(value, int | float):
+            # direct type-check is much faster than isinstance with union
+            if type(value) not in is_numeric:
                 raise ValueError(
                     f"Value for column '{col}' in {param_name} must be numeric"
                 )
@@ -433,12 +447,10 @@ def _validate_tolerance_parameter(
 
             # Handle column name case according to case_mode
             col_key = str(col)
-            if case_mode == "lower":
-                col_key = col_key.lower()
-            elif case_mode == "upper":
-                col_key = col_key.upper()
+            if case_func is not None:
+                col_key = case_func(col_key)
 
-            result[col_key] = float(value)
+            result[col_key] = add_float(value)
 
         # If no default provided, add 0.0
         if "default" not in result:
