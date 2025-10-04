@@ -456,12 +456,11 @@ class PolarsCompare(BaseCompare):
                 match_columns.append(column + "_match")
 
         if len(match_columns) > 0:
-            return int(
-                self.intersect_rows[match_columns]
-                .select(pl.all_horizontal(match_columns).alias("__sum"))
-                .sum()
-                .item()
+            # Avoid repeatedly constructing the selection
+            selected = self.intersect_rows.select(
+                pl.all_horizontal(match_columns).alias("__sum")
             )
+            return int(selected.sum().item())
         else:
             # corner case where it is just the join columns that make the dataframes
             if len(self.intersect_rows) > 0:
@@ -667,17 +666,23 @@ class PolarsCompare(BaseCompare):
         dict
             Dictionary containing row summary information.
         """
+        # Optimize by caching expensive values within this function
+        intersect_rows_shape_0 = self.intersect_rows.shape[0]
+        df1_unq_rows_shape_0 = self.df1_unq_rows.shape[0]
+        df2_unq_rows_shape_0 = self.df2_unq_rows.shape[0]
+        matching_rows_count = self.count_matching_rows()
+        unequal_rows = intersect_rows_shape_0 - matching_rows_count
+
         return {
             "row_summary": {
                 "match_columns": ", ".join(self.join_columns),
                 "abs_tol": self.abs_tol,
                 "rel_tol": self.rel_tol,
-                "common_rows": self.intersect_rows.shape[0],
-                "df1_unique": self.df1_unq_rows.shape[0],
-                "df2_unique": self.df2_unq_rows.shape[0],
-                "unequal_rows": self.intersect_rows.shape[0]
-                - self.count_matching_rows(),
-                "equal_rows": self.count_matching_rows(),
+                "common_rows": intersect_rows_shape_0,
+                "df1_unique": df1_unq_rows_shape_0,
+                "df2_unique": df2_unq_rows_shape_0,
+                "unequal_rows": unequal_rows,
+                "equal_rows": matching_rows_count,
                 "df1_name": self.df1_name,
                 "df2_name": self.df2_name,
                 "has_duplicates": "Yes" if self._any_dupes else "No",
