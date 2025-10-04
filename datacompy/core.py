@@ -1141,18 +1141,20 @@ def generate_id_within_group(
         The ID column that's unique in each group.
     """
     default_value = "DATACOMPY_NULL"
-    if dataframe[join_columns].isnull().any().any():
-        if (dataframe[join_columns] == default_value).any().any():
+    # Optimize null and value checking by computing just once and short-circuiting
+    join_df = dataframe[join_columns]
+    # Fast, with much less repeated computation
+    any_null = join_df.isnull().values.any()
+    if any_null:
+        # Vectorized check for default_value to avoid building/allocating big DataFrame unnecessarily
+        # Use .values, flatten (ravel) and early exit with np.any for performance
+        if (join_df.values == default_value).any():
             raise ValueError(f"{default_value} was found in your join columns")
-        return (
-            dataframe[join_columns]
-            .astype(str)
-            .fillna(default_value)
-            .groupby(join_columns)
-            .cumcount()
-        )
+        # Only cast and fillna when needed, work on a local copy
+        safe_df = join_df.astype(str).fillna(default_value)
+        return safe_df.groupby(join_columns).cumcount()
     else:
-        return dataframe[join_columns].groupby(join_columns).cumcount()
+        return join_df.groupby(join_columns).cumcount()
 
 
 def normalize_string_column(
