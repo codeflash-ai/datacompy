@@ -410,19 +410,25 @@ def _validate_tolerance_parameter(
     if case_mode not in ["lower", "upper", "preserve"]:
         raise ValueError("case_mode must be 'lower', 'upper', or 'preserve'")
 
-    # If float, convert to dict with default value
-    if isinstance(param_value, int | float):
+    if isinstance(param_value, (int, float)):
         if param_value < 0:
             raise ValueError(f"{param_name} cannot be negative")
         return {"default": float(param_value)}
 
-    # If dict, validate values and format
     if isinstance(param_value, dict):
-        result = {}
+        if not param_value:
+            # empty dict - just return {"default": 0.0}
+            return {"default": 0.0}
 
-        # Convert all values to float and validate
+        # Pre-allocate result dict then bulk operate
+        result = {}
+        float_type = (int, float)
+        lower = case_mode == "lower"
+        upper = case_mode == "upper"
+        preserve = case_mode == "preserve"
+
         for col, value in param_value.items():
-            if not isinstance(value, int | float):
+            if not isinstance(value, float_type):
                 raise ValueError(
                     f"Value for column '{col}' in {param_name} must be numeric"
                 )
@@ -431,16 +437,15 @@ def _validate_tolerance_parameter(
                     f"Value for column '{col}' in {param_name} cannot be negative"
                 )
 
-            # Handle column name case according to case_mode
             col_key = str(col)
-            if case_mode == "lower":
+            if lower:
                 col_key = col_key.lower()
-            elif case_mode == "upper":
+            elif upper:
                 col_key = col_key.upper()
+            # preserve: col_key unchanged
 
             result[col_key] = float(value)
 
-        # If no default provided, add 0.0
         if "default" not in result:
             result["default"] = 0.0
 
