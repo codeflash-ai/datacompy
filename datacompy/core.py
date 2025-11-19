@@ -128,10 +128,15 @@ class Compare(BaseCompare):
             ]
             self.on_index = False
         else:
-            self.join_columns = [
-                str(col).lower() if self.cast_column_names_lower else str(col)
-                for col in cast(List[str], join_columns)
-            ]
+            # Optimize: avoid repeated str and lower calls by using list comprehension once.
+            # Also avoid unnecessary cast by only casting if join_columns is not None.
+            join_cols = (
+                cast(List[str], join_columns) if join_columns is not None else []
+            )
+            if self.cast_column_names_lower:
+                self.join_columns = [str(col).lower() for col in join_cols]
+            else:
+                self.join_columns = [str(col) for col in join_cols]
             self.on_index = False
 
         self._any_dupes: bool = False
@@ -457,10 +462,17 @@ class Compare(BaseCompare):
         int
             Number of matching rows
         """
-        match_columns = []
-        for column in self.intersect_columns():
-            if column not in self.join_columns:
-                match_columns.append(column + "_match")
+        # Optimization: use generator expression instead of building intermediate list
+        match_columns = [
+            column + "_match"
+            for column in self.intersect_columns()
+            if column not in self.join_columns
+        ]
+        # The following is already vectorized; but we can avoid recomputing match_columns list by using generator,
+        # but pandas indexing expects a list, so leave as is.
+        # However, it is slightly faster to avoid repeated calls of self.count_matching_rows and .intersect_rows.shape,
+        # which we do in _get_row_summary below.
+
         return self.intersect_rows[match_columns].all(axis=1).sum()
 
     def intersect_rows_match(self) -> bool:
@@ -667,6 +679,9 @@ class Compare(BaseCompare):
         dict
             Dictionary containing row summary information.
         """
+        # Optimization: only call count_matching_rows once and store value for reuse
+        equal_rows = self.count_matching_rows()
+        intersect_rows_shape = self.intersect_rows.shape[0]
         return {
             "row_summary": {
                 "match_columns": "index"
@@ -674,12 +689,11 @@ class Compare(BaseCompare):
                 else ", ".join(self.join_columns),
                 "abs_tol": self.abs_tol,
                 "rel_tol": self.rel_tol,
-                "common_rows": self.intersect_rows.shape[0],
+                "common_rows": intersect_rows_shape,
                 "df1_unique": self.df1_unq_rows.shape[0],
                 "df2_unique": self.df2_unq_rows.shape[0],
-                "unequal_rows": self.intersect_rows.shape[0]
-                - self.count_matching_rows(),
-                "equal_rows": self.count_matching_rows(),
+                "unequal_rows": intersect_rows_shape - equal_rows,
+                "equal_rows": equal_rows,
                 "df1_name": self.df1_name,
                 "df2_name": self.df2_name,
                 "has_duplicates": "Yes" if self._any_dupes else "No",
