@@ -1364,17 +1364,12 @@ def temp_column_name(*dataframes) -> str:
         String column name that looks like '_temp_x' for some integer x
     """
     i = 0
-    columns = []
+    columns = set()
     for dataframe in dataframes:
-        columns = columns + list(dataframe.columns)
-    columns = set(columns)
+        columns.update(dataframe.columns)
 
     while True:
         temp_column = f"_TEMP_{i}"
-        unique = True
-
-        if temp_column in columns:
-            i += 1
-            unique = False
-        if unique:
+        if temp_column not in columns:
             return temp_column
+        i += 1
