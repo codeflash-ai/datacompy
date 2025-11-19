@@ -184,7 +184,16 @@ class BaseCompare(ABC):
 
     def only_join_columns(self) -> bool:
         """Boolean on if the only columns are the join columns."""
-        return set(self.join_columns) == set(self.df1.columns) == set(self.df2.columns)
+        join_columns_set = set(self.join_columns)
+        df1_cols = self.df1.columns
+        df2_cols = self.df2.columns
+
+        if len(join_columns_set) != len(df1_cols) or len(join_columns_set) != len(
+            df2_cols
+        ):
+            return False
+
+        return join_columns_set == set(df1_cols) and join_columns_set == set(df2_cols)
 
 
 def _resolve_template_path(template_name: str) -> tuple[str, str]:
