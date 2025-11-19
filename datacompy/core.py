@@ -971,7 +971,12 @@ def columns_equal(
         values don't match.
     """
     default_value = "DATACOMPY_NULL"
-    compare: pd.Series[bool]
+
+    # Pre-infer type dtypes to avoid multiple expensive calls to infer_dtype
+    col_1_infer = pd.api.types.infer_dtype(col_1)
+    col_2_infer = pd.api.types.infer_dtype(col_2)
+
+    # Normalize columns only if needed
 
     col_1 = normalize_string_column(
         col_1, ignore_spaces=ignore_spaces, ignore_case=ignore_case
@@ -980,53 +985,65 @@ def columns_equal(
         col_2, ignore_spaces=ignore_spaces, ignore_case=ignore_case
     )
 
-    # Rest of comparison logic using rel_tol and abs_tol
-    # short circuit if comparing mixed type columns. Check list/arrrays or just return false for everything else.
-    if pd.api.types.infer_dtype(col_1).startswith("mixed") or pd.api.types.infer_dtype(
-        col_2
-    ).startswith("mixed"):
-        if all(isinstance(item, list | np.ndarray) for item in col_1) and all(
-            isinstance(item, list | np.ndarray) for item in col_2
+    # Short circuit if comparing mixed type columns. Check list/arrrays or just return false for everything else.
+    if col_1_infer.startswith("mixed") or col_2_infer.startswith("mixed"):
+        # Only check list/np.ndarray types if both are mixed
+        # Use generator and zip with all() for efficiency (short circuits).
+        if all(isinstance(item, (list, np.ndarray)) for item in col_1) and all(
+            isinstance(item, (list, np.ndarray)) for item in col_2
         ):  # compare list like
-            # join together and apply np.array_equal
-            temp_df = pd.DataFrame({"col_1": col_1, "col_2": col_2})
-            compare = temp_df.apply(
-                lambda row: np.array_equal(row.col_1, row.col_2, equal_nan=True), axis=1
+            # Efficient row-wise np.array_equal
+            arr_1 = col_1.values
+            arr_2 = col_2.values
+            mask = np.fromiter(
+                (
+                    np.array_equal(a, b, equal_nan=True)
+                    for a, b in zip(arr_1, arr_2, strict=False)
+                ),
+                dtype=bool,
+                count=len(arr_1),
             )
+            compare = pd.Series(mask, index=col_1.index)
         else:
             compare = pd.Series(False, index=col_1.index)
     elif pd.api.types.is_string_dtype(col_1) and pd.api.types.is_string_dtype(col_2):
         try:
-            compare = pd.Series(
-                (col_1.fillna(default_value) == col_2.fillna(default_value))
-                | (col_1.isnull() & col_2.isnull())
+            # Fast vectorized (fillna then compare), avoid boolean indexing chain
+            same = (
+                col_1.fillna(default_value).values == col_2.fillna(default_value).values
             )
+            both_null = col_1.isnull().values & col_2.isnull().values
+            compare = pd.Series(same | both_null, index=col_1.index)
         except TypeError:
-            compare = pd.Series(col_1.astype(str) == col_2.astype(str))
+            compare = pd.Series(
+                (col_1.astype(str)).values == (col_2.astype(str)).values,
+                index=col_1.index,
+            )
     elif {col_1.dtype.kind, col_2.dtype.kind} == {"M", "O"}:
         compare = compare_string_and_date_columns(col_1, col_2)
     else:
         try:
-            compare = pd.Series(
-                np.isclose(col_1, col_2, rtol=rel_tol, atol=abs_tol, equal_nan=True)
-            )
+            # Convert to numpy arrays for efficient np.isclose call
+            arr1 = np.asarray(col_1)
+            arr2 = np.asarray(col_2)
+            mask = np.isclose(arr1, arr2, rtol=rel_tol, atol=abs_tol, equal_nan=True)
+            compare = pd.Series(mask, index=col_1.index)
         except TypeError:
             try:
-                compare = pd.Series(
-                    np.isclose(
-                        col_1.astype(float),
-                        col_2.astype(float),
-                        rtol=rel_tol,
-                        atol=abs_tol,
-                        equal_nan=True,
-                    )
+                arr1f = np.asarray(col_1.astype(float))
+                arr2f = np.asarray(col_2.astype(float))
+                mask = np.isclose(
+                    arr1f, arr2f, rtol=rel_tol, atol=abs_tol, equal_nan=True
                 )
+                compare = pd.Series(mask, index=col_1.index)
             except Exception:
                 try:  # last check where we just cast to strings
-                    compare = pd.Series(col_1.astype(str) == col_2.astype(str))
+                    compare = pd.Series(
+                        (col_1.astype(str)).values == (col_2.astype(str)).values,
+                        index=col_1.index,
+                    )
                 except Exception:  # Blanket exception should just return all False
                     compare = pd.Series(False, index=col_1.index)
-    compare.index = col_1.index
     return compare
 
 
@@ -1059,16 +1076,16 @@ def compare_string_and_date_columns(
         date_column = col_1
 
     try:
-        return pd.Series(
-            (pd.to_datetime(obj_column) == date_column)
-            | (obj_column.isnull() & date_column.isnull())
-        )
+        dt_obj = pd.to_datetime(obj_column)
+        mask = dt_obj.values == date_column.values
+        null_mask = obj_column.isnull().values & date_column.isnull().values
+        return pd.Series(mask | null_mask, index=col_1.index)
     except Exception:
         try:
-            return pd.Series(
-                (pd.to_datetime(obj_column, format="mixed") == date_column)
-                | (obj_column.isnull() & date_column.isnull())
-            )
+            dt_obj = pd.to_datetime(obj_column, format="mixed")
+            mask = dt_obj.values == date_column.values
+            null_mask = obj_column.isnull().values & date_column.isnull().values
+            return pd.Series(mask | null_mask, index=col_1.index)
         except Exception:
             return pd.Series(False, index=col_1.index)
 
@@ -1178,10 +1195,18 @@ def normalize_string_column(
     -----
     Will not operate on categorical columns.
     """
-    if (column.dtype.kind == "O" and pd.api.types.infer_dtype(column) == "string") or (
+    # Avoid calling infer_dtype twice and do type checks up front for performance
+    kind = column.dtype.kind
+    if (kind == "O" and pd.api.types.infer_dtype(column) == "string") or (
         pd.api.types.is_string_dtype(column)
         and not isinstance(column.dtype, pd.CategoricalDtype)
     ):
-        column = column.str.strip() if ignore_spaces else column
-        column = column.str.upper() if ignore_case else column
+        # Use chained .str methods is highly optimized in Pandas
+        if ignore_spaces and ignore_case:
+            return column.str.strip().str.upper()
+        elif ignore_spaces:
+            return column.str.strip()
+        elif ignore_case:
+            return column.str.upper()
+        # else: do nothing
     return column
