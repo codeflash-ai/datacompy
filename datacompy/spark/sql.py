@@ -26,6 +26,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
+import pyspark.sql
 from ordered_set import OrderedSet
 
 from datacompy.base import (
@@ -1183,15 +1184,20 @@ def get_merged_columns(
     List[str]
         Column list of the original dataframe pre suffix
     """
-    columns = []
+    # Precompute merged_df.columns as a set for O(1) lookups
+    merged_columns_set = set(merged_df.columns)
+    result_columns = []
+    suffix_fmt = f"_{suffix}"
     for col in original_df.columns:
-        if col in merged_df.columns:
-            columns.append(col)
-        elif col + "_" + suffix in merged_df.columns:
-            columns.append(col + "_" + suffix)
+        if col in merged_columns_set:
+            result_columns.append(col)
         else:
-            raise ValueError("Column not found: %s", col)
-    return columns
+            col_with_suffix = col + suffix_fmt
+            if col_with_suffix in merged_columns_set:
+                result_columns.append(col_with_suffix)
+            else:
+                raise ValueError("Column not found: %s", col)
+    return result_columns
 
 
 def calculate_max_diff(
