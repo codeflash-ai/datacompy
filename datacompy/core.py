@@ -694,15 +694,23 @@ class Compare(BaseCompare):
         dict
             Dictionary containing column comparison information.
         """
+        unequal_columns = 0
+        equal_columns = 0
+        unequal_values = 0
+
+        for col in self.column_stats:
+            cnt = col["unequal_cnt"]
+            unequal_values += cnt
+            if cnt > 0:
+                unequal_columns += 1
+            elif cnt == 0:
+                equal_columns += 1
+
         return {
             "column_comparison": {
-                "unequal_columns": len(
-                    [col for col in self.column_stats if col["unequal_cnt"] > 0]
-                ),
-                "equal_columns": len(
-                    [col for col in self.column_stats if col["unequal_cnt"] == 0]
-                ),
-                "unequal_values": sum(col["unequal_cnt"] for col in self.column_stats),
+                "unequal_columns": unequal_columns,
+                "equal_columns": equal_columns,
+                "unequal_values": unequal_values,
             }
         }
 
