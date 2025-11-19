@@ -26,6 +26,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
+import pyspark.sql
 from ordered_set import OrderedSet
 
 from datacompy.base import (
@@ -1296,37 +1297,74 @@ def _generate_id_within_group(
         Original dataframe with the ID column that's unique in each group
     """
     default_value = "DATACOMPY_NULL"
-    null_cols = [f"any(isnull({c}))" for c in join_columns]
-    default_cols = [f"any({c} == '{default_value}')" for c in join_columns]
 
-    null_check = any(list(dataframe.selectExpr(null_cols).first()))
-    default_check = any(list(dataframe.selectExpr(default_cols).first()))
+    # Precompute null-check and default-value-check in a single pass for efficiency
+    checks = [(isnull(col(c)), col(c) == lit(default_value)) for c in join_columns]
+    # Avoid multiple Spark actions: apply all 'or' reductions in DataFrame expression
+    any_null_expr = None
+    any_default_expr = None
+    for null_expr, default_expr in checks:
+        any_null_expr = (
+            null_expr if any_null_expr is None else (any_null_expr | null_expr)
+        )
+        any_default_expr = (
+            default_expr
+            if any_default_expr is None
+            else (any_default_expr | default_expr)
+        )
+
+    check_cols = []
+    if any_null_expr is not None:
+        check_cols.append(any_null_expr.alias("__datacompy_anynull"))
+    if any_default_expr is not None:
+        check_cols.append(any_default_expr.alias("__datacompy_anydefault"))
+
+    need_null_check = bool(check_cols)
+    # Only evaluate these columns if there are any join columns
+    if need_null_check:
+        first_row = dataframe.select(*check_cols).limit(1).collect()
+        if first_row:
+            row = first_row[0]
+            null_check = (
+                row["__datacompy_anynull"] if "__datacompy_anynull" in row else False
+            )
+            default_check = (
+                row["__datacompy_anydefault"]
+                if "__datacompy_anydefault" in row
+                else False
+            )
+        else:
+            null_check = False
+            default_check = False
+    else:
+        null_check = False
+        default_check = False
 
     if null_check:
         if default_check:
             raise ValueError(f"{default_value} was found in your join columns")
 
-        return (
-            dataframe.select(
-                *(col(c).cast("string").alias(c) for c in [*join_columns, "__index"])
-            )
-            .fillna(default_value)
-            .withColumn(
-                order_column_name,
-                row_number().over(Window.orderBy("__index").partitionBy(join_columns))
-                - 1,
-            )
-            .select(["__index", order_column_name])
-        )
+        # Only cast to string + fillna if needed
+        selected_cols = [col(c).cast("string").alias(c) for c in join_columns] + [
+            col("__index")
+        ]
+        df_prepped = dataframe.select(*selected_cols).fillna(default_value)
+        window_spec = Window.orderBy("__index").partitionBy(join_columns)
+        df_result = df_prepped.withColumn(
+            order_column_name,
+            row_number().over(window_spec) - 1,
+        ).select("__index", order_column_name)
+        return df_result
     else:
+        # Avoid unnecessary select-cast and fillna
+        window_spec = Window.orderBy("__index").partitionBy(join_columns)
         return (
             dataframe.select([*join_columns, "__index"])
             .withColumn(
                 order_column_name,
-                row_number().over(Window.orderBy("__index").partitionBy(join_columns))
-                - 1,
+                row_number().over(window_spec) - 1,
             )
-            .select(["__index", order_column_name])
+            .select("__index", order_column_name)
         )
 
 
