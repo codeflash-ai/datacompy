@@ -1141,18 +1141,26 @@ def generate_id_within_group(
         The ID column that's unique in each group.
     """
     default_value = "DATACOMPY_NULL"
-    if dataframe[join_columns].isnull().any().any():
-        if (dataframe[join_columns] == default_value).any().any():
+    join_df = dataframe[join_columns]
+
+    # Use a mask to avoid double subsetting for nulls and value checks
+    isnull_any = join_df.isnull().to_numpy().any()
+    if isnull_any:
+        # Use numpy for the value check for performance
+        # Early filter for speed, also handle fillna and as_type only once
+        values_array = join_df.to_numpy(dtype="object")
+        # Check if default_value exists in any cell; avoid expensive == with DataFrame
+        # First, quickly build a boolean array of where default_value matches
+        default_in_cols = (values_array == default_value).any()
+        if default_in_cols:
             raise ValueError(f"{default_value} was found in your join columns")
-        return (
-            dataframe[join_columns]
-            .astype(str)
-            .fillna(default_value)
-            .groupby(join_columns)
-            .cumcount()
-        )
+        # Avoid repeated .astype(str) + .fillna; do this once and reuse
+        joined_str = join_df.astype(str).fillna(default_value, downcast=None)
+        # Using .groupby then .cumcount as original; this is still the best way
+        return joined_str.groupby(join_columns).cumcount()
     else:
-        return dataframe[join_columns].groupby(join_columns).cumcount()
+        # Use the DataFrameGroupBy object only once
+        return join_df.groupby(join_columns).cumcount()
 
 
 def normalize_string_column(
