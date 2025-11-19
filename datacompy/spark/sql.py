@@ -26,6 +26,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
+import pyspark.sql
 from ordered_set import OrderedSet
 
 from datacompy.base import (
@@ -1127,31 +1128,47 @@ def columns_equal(
             compare_dtype in NUMERIC_SPARK_TYPES
         ):
             # numeric tolerance comparison
+            # Cache columns and lit values to avoid repeated construction of identical expressions within Spark's logical plan.
+            col1_expr = col(col_1)
+            col2_expr = col(col_2)
+            abs_tol_lit = lit(abs_tol)
+            rel_tol_lit = lit(rel_tol)
+            abs_diff = abs(col1_expr - col2_expr)
+            abs_col2 = abs(col2_expr)
+            nan_col1 = isnan(col1_expr)
+            nan_col2 = isnan(col2_expr)
+
+            tol_expr = abs_tol_lit + (rel_tol_lit * abs_col2)
+            # numeric tolerance comparison
             return when(
-                (col(col_1).eqNullSafe(col(col_2)))
-                | (
-                    abs(col(col_1) - col(col_2))
-                    <= lit(abs_tol) + (lit(rel_tol) * abs(col(col_2)))
-                ),
+                (col1_expr.eqNullSafe(col2_expr)) | (abs_diff <= tol_expr),
+                # corner case of col1 != NaN and col2 == NaN returns True incorrectly
                 # corner case of col1 != NaN and col2 == NaN returns True incorrectly
                 when(
-                    (isnan(col(col_1)) == False)  # noqa: E712
-                    & (isnan(col(col_2)) == True),  # noqa: E712
+                    (nan_col1 == False)  # noqa: E712
+                    & (nan_col2 == True),  # noqa: E712
                     lit(False),
                 ).otherwise(lit(True)),
             ).otherwise(lit(False))
         else:
             # non-numeric comparison
+            col1_expr = col(col_1)
+            col2_expr = col(col_2)
+            # Precompute normalized columns where possible to avoid repeated fn calls
             if ignore_case and not ignore_spaces:
-                when_clause = upper(col(col_1)).eqNullSafe(upper(col(col_2)))
+                c1n = upper(col1_expr)
+                c2n = upper(col2_expr)
             elif not ignore_case and ignore_spaces:
-                when_clause = trim(col(col_1)).eqNullSafe(trim(col(col_2)))
+                c1n = trim(col1_expr)
+                c2n = trim(col2_expr)
             elif ignore_case and ignore_spaces:
-                when_clause = upper(trim(col(col_1))).eqNullSafe(
-                    upper(trim(col(col_2)))
-                )
+                c1n = upper(trim(col1_expr))
+                c2n = upper(trim(col2_expr))
             else:
-                when_clause = col(col_1).eqNullSafe(col(col_2))
+                c1n = col1_expr
+                c2n = col2_expr
+
+            when_clause = c1n.eqNullSafe(c2n)
 
             return when(when_clause, lit(True)).otherwise(lit(False))
     else:
@@ -1349,8 +1366,10 @@ def _get_column_dtypes(
     Tuple(str, str)
         Tuple of base and compare datatype
     """
-    base_dtype = next(d[1] for d in dataframe.dtypes if d[0] == col_1)
-    compare_dtype = next(d[1] for d in dataframe.dtypes if d[0] == col_2)
+    # Converts the dataframe.dtypes list (tuple pairs) to a dict for O(1) lookup.
+    dtype_map = dict(dataframe.dtypes)
+    base_dtype = dtype_map[col_1]
+    compare_dtype = dtype_map[col_2]
     return base_dtype, compare_dtype
 
 
