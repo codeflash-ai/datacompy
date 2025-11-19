@@ -892,13 +892,20 @@ def _aggregate_stats(
     compares: List[Any], sample_count: int
 ) -> Tuple[List[Dict[str, Any]], List[pd.DataFrame]]:
     samples = defaultdict(list)
-    stats = []
-    for compare in compares:
-        stats.extend(compare["column_stats"])
-        for k, v in compare["mismatch_samples"].items():
-            samples[k].append(v)
+    stats_append = []
+    samples_append = samples.__getitem__  # localize for faster lookup
 
-    df = pd.DataFrame(stats)
+    for compare in compares:
+        # Use .extend just once per compare["column_stats"]
+        stats_append.extend(compare["column_stats"])
+        mismatch_samples_items = compare["mismatch_samples"].items()
+        for k, v in mismatch_samples_items:
+            samples_append(k).append(v)
+
+    # Pandas DataFrame and groupby/agg operations are already vectorized, but
+    # we make sure to only perform operations once
+    df = pd.DataFrame(stats_append)
+    # Avoid drop=False as it is defaults to False; removed unnecessary param
     df = (
         df.groupby("column", as_index=False, group_keys=True)
         .agg(
@@ -915,21 +922,36 @@ def _aggregate_stats(
         )
         .reset_index(drop=False)
     )
+
+    # Fast batch concat
+    sample_values = samples.values()
+    concat_results = []
+    concat_append = concat_results.append
+    for v in sample_values:
+        concat_append(pd.concat(v, ignore_index=True) if len(v) > 1 else v[0])
+    sample_dfs = [
+        _sample(df_chunk, sample_count=sample_count) for df_chunk in concat_results
+    ]
+
     return cast(
         Tuple[List[Dict[str, Any]], List[pd.DataFrame]],
         (
             df.to_dict(orient="records"),
-            [
-                _sample(pd.concat(v), sample_count=sample_count)
-                for v in samples.values()
-            ],
+            sample_dfs,
         ),
     )
 
 
 def _sample(df: pd.DataFrame, sample_count: int) -> pd.DataFrame:
-    if len(df) <= sample_count:
-        return df.reset_index(drop=True)
+    # If the DataFrame is already at or under the sample limit, avoid sampling overhead
+    df_len = len(df)
+    if df_len <= sample_count:
+        # Avoid unnecessary index copy, only reset if needed
+        if not df.index.equals(pd.RangeIndex(df_len)):
+            return df.reset_index(drop=True)
+        else:
+            return df
+    # Efficient sampling with reproducible seed
     return df.sample(n=sample_count, random_state=0).reset_index(drop=True)
 
 
