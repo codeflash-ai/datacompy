@@ -59,8 +59,9 @@ def unq_columns(df1: "AnyDataFrame", df2: "AnyDataFrame") -> OrderedSet[str]:
         Set of columns that are unique to df1
     """
     col1 = fa.get_column_names(df1)
-    col2 = fa.get_column_names(df2)
-    return cast(OrderedSet[str], OrderedSet(col1) - OrderedSet(col2))
+    col2_set = set(fa.get_column_names(df2))
+    result = OrderedSet(x for x in col1 if x not in col2_set)
+    return cast(OrderedSet[str], result)
 
 
 def intersect_columns(df1: "AnyDataFrame", df2: "AnyDataFrame") -> OrderedSet[str]:
