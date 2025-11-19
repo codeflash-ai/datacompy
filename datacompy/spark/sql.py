@@ -73,8 +73,14 @@ def decimal_comparator():
     """
 
     class DecimalComparator(str):
+        __slots__ = ()  # Disables instance __dict__ to reduce overhead
+
         def __eq__(self, other):
-            return len(other) >= 7 and other[0:7] == "decimal"
+            # Minimize repeated computation for performance
+            # Faster than slicing and string comparison for this case
+            if isinstance(other, str):
+                return other.startswith("decimal")
+            return False
 
     return DecimalComparator("decimal")
 
