@@ -928,9 +928,16 @@ def _aggregate_stats(
 
 
 def _sample(df: pd.DataFrame, sample_count: int) -> pd.DataFrame:
-    if len(df) <= sample_count:
+    df_len = len(df)
+    if df_len <= sample_count:
+        if (
+            isinstance(df.index, pd.RangeIndex)
+            and df.index.start == 0
+            and df.index.step == 1
+        ):
+            return df
         return df.reset_index(drop=True)
-    return df.sample(n=sample_count, random_state=0).reset_index(drop=True)
+    return df.sample(n=sample_count, random_state=0, ignore_index=True)
 
 
 class _StrictSchemaError(Exception):
