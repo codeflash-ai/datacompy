@@ -692,15 +692,23 @@ class PolarsCompare(BaseCompare):
         dict
             Dictionary containing column comparison information.
         """
+        # Optimization: process column_stats in a single scan to reduce traversals
+        unequal_columns = 0
+        equal_columns = 0
+        unequal_values = 0
+        for col in self.column_stats:
+            cnt = col["unequal_cnt"]
+            if cnt > 0:
+                unequal_columns += 1
+            elif cnt == 0:
+                equal_columns += 1
+            unequal_values += cnt
+
         return {
             "column_comparison": {
-                "unequal_columns": len(
-                    [col for col in self.column_stats if col["unequal_cnt"] > 0]
-                ),
-                "equal_columns": len(
-                    [col for col in self.column_stats if col["unequal_cnt"] == 0]
-                ),
-                "unequal_values": sum(col["unequal_cnt"] for col in self.column_stats),
+                "unequal_columns": unequal_columns,
+                "equal_columns": equal_columns,
+                "unequal_values": unequal_values,
             }
         }
 
