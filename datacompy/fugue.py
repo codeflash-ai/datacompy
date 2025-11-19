@@ -100,7 +100,10 @@ def all_columns_match(df1: "AnyDataFrame", df2: "AnyDataFrame") -> bool:
     bool
         Boolean indicating whether the columns all match in the dataframes
     """
-    return unq_columns(df1, df2) == unq_columns(df2, df1) == set()
+    # Optimize: Call get_column_names only once for each df
+    col1 = fa.get_column_names(df1)
+    col2 = fa.get_column_names(df2)
+    return set(col1) == set(col2)
 
 
 def is_match(
