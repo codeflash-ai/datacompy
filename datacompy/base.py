@@ -280,10 +280,10 @@ def temp_column_name(*dataframes) -> str:
         String column name that looks like '_temp_x' for some integer x
     """
     i = 0
-    columns = []
+    columns = set()
     for df in dataframes:
         if df is not None:
-            columns.extend(df.columns)
+            columns.update(df.columns)
     while True:
         tmp = f"_temp_{i}"
         if tmp not in columns:
