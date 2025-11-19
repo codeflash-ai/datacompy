@@ -407,11 +407,11 @@ def _validate_tolerance_parameter(
     ValueError
         If any tolerance values are not numeric or negative or if case_mode is invalid
     """
-    if case_mode not in ["lower", "upper", "preserve"]:
+    if case_mode not in ("lower", "upper", "preserve"):
         raise ValueError("case_mode must be 'lower', 'upper', or 'preserve'")
 
     # If float, convert to dict with default value
-    if isinstance(param_value, int | float):
+    if isinstance(param_value, (int, float)):
         if param_value < 0:
             raise ValueError(f"{param_name} cannot be negative")
         return {"default": float(param_value)}
@@ -419,10 +419,21 @@ def _validate_tolerance_parameter(
     # If dict, validate values and format
     if isinstance(param_value, dict):
         result = {}
+        to_float = float  # direct reference for performance
+        is_numeric = (int, float)
+        case_mode_lower = case_mode == "lower"
+        case_mode_upper = case_mode == "upper"
 
-        # Convert all values to float and validate
-        for col, value in param_value.items():
-            if not isinstance(value, int | float):
+        items = param_value.items()
+        # Short-circuit if param_value is empty
+        if not items:
+            result["default"] = 0.0
+            return result
+
+        # Precompute str conversion for string column names
+        for col, value in items:
+            # Fast numeric check
+            if not isinstance(value, is_numeric):
                 raise ValueError(
                     f"Value for column '{col}' in {param_name} must be numeric"
                 )
@@ -433,12 +444,16 @@ def _validate_tolerance_parameter(
 
             # Handle column name case according to case_mode
             col_key = str(col)
-            if case_mode == "lower":
+            # Avoid extra if/elif eval for every row
+            if case_mode_lower:
                 col_key = col_key.lower()
-            elif case_mode == "upper":
+            elif case_mode_upper:
                 col_key = col_key.upper()
+            # else preserve
 
-            result[col_key] = float(value)
+            result[col_key] = to_float(value)
+
+        # Only check "default" and add 0.0 if not present
 
         # If no default provided, add 0.0
         if "default" not in result:
