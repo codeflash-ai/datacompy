@@ -26,6 +26,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
+import pyspark.sql
 from ordered_set import OrderedSet
 
 from datacompy.base import (
@@ -1213,12 +1214,12 @@ def calculate_max_diff(
     float
         max diff
     """
-    diff = dataframe.select(
-        (col(col_1).astype("float") - col(col_2).astype("float")).alias("diff")
-    )
-    abs_diff = diff.select(abs(col("diff")).alias("abs_diff"))
     max_diff: float = (
-        abs_diff.where(isnan(col("abs_diff")) == False)  # noqa: E712
+        dataframe.select(
+            abs(col(col_1).astype("float") - col(col_2).astype("float")).alias(
+                "abs_diff"
+            )
+        )
         .agg({"abs_diff": "max"})
         .collect()[0][0]
     )
